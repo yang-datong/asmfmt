@@ -258,15 +258,31 @@ exitcomm:
 		f.flush()
 
 		// Add newline before jump target.
-		f.newLine()
+		if !st.isPreProcessor() && !st.isGasDirective() && !st.isCustomMacro() {
+			f.newLine()
+		}
 
 		f.indentation = 0
 		f.queued = append(f.queued, *st)
 		f.flush()
 
-		if !st.isPreProcessor() && !st.isGlobal() {
+		//if !st.isGlobal() {
+			//f.indentation = 1
+		//}
+		if st.isGlobal() {
+			// DATA / GLOBL 等：下一行保持顶格 (0)
+			f.indentation = 0
+		} else if st.isBlockTerminator() {
+			// .endm / endfunc：作用域彻底结束，下一行重置为顶格 (0)
+			f.indentation = 0
+		} else {
+			// 其他所有情况：
+			// 包括 Label, .if, .else, .endif, .macro, function 等。
+			// 它们虽然自己顶格打印，但都暗示后面紧跟着代码体。
+			// 所以下一行强制缩进 (1)。
 			f.indentation = 1
 		}
+
 		f.lastLabel = true
 		return nil
 	}
@@ -489,7 +505,7 @@ func (st *statement) setParams(s string) {
 
 // Return true if this line should be at indentation level 0.
 func (st statement) level0() bool {
-	return st.isLabel() || st.isTEXT() || st.isPreProcessor()
+	return st.isLabel() || st.isTEXT() || st.isPreProcessor() || st.isGasDirective() || st.isCustomMacro()
 }
 
 // Will return true if the statement is a label.
@@ -649,4 +665,36 @@ func formatStatements(s []statement) []string {
 		res[i] = r
 	}
 	return res
+}
+
+// [新增] 判断是否为 GAS 预处理指令（以点开头，且不是 Label）
+func (st statement) isGasDirective() bool {
+	return strings.HasPrefix(st.instruction, ".") && !strings.HasSuffix(st.instruction, ":")
+}
+
+// [新增] 定义自定义宏指令，这些指令会被视为顶格指令，且不会在上方产生空行
+func (st statement) isCustomMacro() bool {
+	// 将指令转为小写进行匹配
+	switch strings.ToLower(st.instruction) {
+	// 在这里添加你的关键字
+	case "function", "endfunc", "const", "endconst":
+		return true
+	// 如果有其他类似 .macro function 这种写法，如果是以点开头的，
+	// 已经被 isGasDirective 覆盖了，这里只需要处理不带点的自定义名称。
+	}
+	return false
+}
+
+// [修改] 只包含真正结束作用域的指令
+// 这些指令处理完后，下一行会重置缩进为 0
+func (st statement) isBlockTerminator() bool {
+	s := strings.ToLower(st.instruction)
+	switch s {
+	// 注意：删除了 .endif 和 .else
+	case ".endm", ".endr":         // GAS 结构结束
+		return true
+	case "endfunc", "endconst":    // 自定义宏结束
+		return true
+	}
+	return false
 }
