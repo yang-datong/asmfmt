@@ -1,6 +1,9 @@
 # Update
 Add arm64(gas) support
 
+build:
+$ go build ./cmd/asmfmt
+
 # asmfmt
 Go Assembler Formatter
 
